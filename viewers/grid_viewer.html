@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>glTF Grid Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #222; overflow-x: hidden; font-family: system-ui, sans-serif; padding-top: 52px; }
+  #nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center; gap: 16px;
+    background: #111; color: #ccc; padding: 10px 16px;
+    font-size: 14px; border-bottom: 1px solid #333;
+  }
+  #nav button {
+    background: #333; color: #ccc; border: 1px solid #555;
+    padding: 4px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  #nav button:hover { background: #444; }
+  #nav button:disabled { opacity: .35; cursor: default; }
+  #nav .page-info { min-width: 100px; text-align: center; }
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 2px;
+    width: 100vw;
+    min-height: calc(100vh - 52px);
+  }
+  .cell {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+    background: #1a1a1a;
+    cursor: pointer;
+  }
+  .cell img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .cell video {
+    display: none;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  .cell:hover video {
+    display: block;
+  }
+  .cell:hover img {
+    display: none;
+  }
+  .label {
+    position: absolute;
+    bottom: 8px; left: 8px;
+    color: #ccc; font-size: 12px;
+    background: rgba(0,0,0,.6);
+    padding: 3px 8px; border-radius: 4px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  #error {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #f88; font-size: 16px; text-align: center;
+    background: rgba(0,0,0,.8); padding: 20px 30px; border-radius: 8px;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+<div id="error"></div>
+<div id="nav">
+  <button id="prevBtn">&#9664; Prev</button>
+  <span class="page-info" id="pageInfo"></span>
+  <button id="nextBtn">Next &#9654;</button>
+</div>
+<div id="grid"></div>
+
+<script type="module">
+const params = new URLSearchParams(location.search);
+const filesParam = params.get('files');
+const pageSize = parseInt(params.get('page_size'), 10) || 6;
+const thumbsBase = params.get('thumbs') || '/.catalog/gltf/thumbs';
+const videosBase = params.get('videos') || '/.catalog/gltf/video';
+const errEl = document.getElementById('error');
+
+if (!filesParam) {
+  errEl.textContent = 'No ?files= parameter provided (JSON array of paths)';
+  throw new Error('no files param');
+}
+
+let files;
+try {
+  files = JSON.parse(filesParam);
+} catch (e) {
+  errEl.textContent = 'Invalid ?files= parameter';
+  throw e;
+}
+
+if (!Array.isArray(files) || files.length === 0) {
+  errEl.textContent = 'No files to display';
+  throw new Error('empty file list');
+}
+
+const totalPages = Math.ceil(files.length / pageSize);
+let currentPage = 0;
+const grid = document.getElementById('grid');
+
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const pageInfo = document.getElementById('pageInfo');
+
+// Folder basename (e.g. "Aemis.gltf") is the catalog key; strip trailing .gltf for display.
+function getFolderName(filePath) {
+  const parts = filePath.split('/').filter(Boolean);
+  return parts[parts.length - 2] || filePath;
+}
+function displayName(folder) {
+  return folder.replace(/\.gltf$/, '');
+}
+
+function renderPage(page) {
+  grid.innerHTML = '';
+
+  const start = page * pageSize;
+  const end = Math.min(start + pageSize, files.length);
+  const pageFiles = files.slice(start, end);
+
+  for (const file of pageFiles) {
+    const folder = getFolderName(file);
+    const label_ = displayName(folder);
+
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+
+    const img = document.createElement('img');
+    img.src = `${thumbsBase}/${folder}.png`;
+    img.alt = label_;
+    img.loading = 'lazy';
+    img.onerror = function () { this.style.background = '#333'; };
+    cell.appendChild(img);
+
+    const video = document.createElement('video');
+    video.src = `${videosBase}/${folder}.webm`;
+    video.muted = true;
+    video.loop = true;
+    video.preload = 'none';
+    cell.appendChild(video);
+
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = label_;
+    cell.appendChild(label);
+
+    cell.addEventListener('mouseenter', () => { video.play(); });
+    cell.addEventListener('mouseleave', () => { video.pause(); video.currentTime = 0; });
+    cell.addEventListener('click', () => {
+      window.open('gltf_viewer.html?file=' + encodeURIComponent(file), '_blank');
+    });
+
+    grid.appendChild(cell);
+  }
+
+  pageInfo.textContent = `Page ${page + 1} of ${totalPages}`;
+  prevBtn.disabled = page === 0;
+  nextBtn.disabled = page >= totalPages - 1;
+}
+
+prevBtn.addEventListener('click', () => {
+  if (currentPage > 0) { currentPage--; renderPage(currentPage); }
+});
+
+nextBtn.addEventListener('click', () => {
+  if (currentPage < totalPages - 1) { currentPage++; renderPage(currentPage); }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft' && currentPage > 0) {
+    currentPage--; renderPage(currentPage);
+  } else if (e.key === 'ArrowRight' && currentPage < totalPages - 1) {
+    currentPage++; renderPage(currentPage);
+  }
+});
+
+renderPage(0);
+</script>
+</body>
+</html>

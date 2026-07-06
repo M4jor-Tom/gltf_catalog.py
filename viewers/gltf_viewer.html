@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>glTF Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #222; overflow: hidden; font-family: system-ui, sans-serif; }
+  #info {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    color: #aaa; font-size: 13px; background: rgba(0,0,0,.6);
+    padding: 6px 14px; border-radius: 6px; pointer-events: none;
+    white-space: nowrap;
+  }
+  #error {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #f88; font-size: 16px; text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="error"></div>
+<div id="info">Orbit: drag · Zoom: scroll · Pan: right-drag</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const params = new URLSearchParams(location.search);
+const file = params.get('file');
+const errEl = document.getElementById('error');
+
+if (!file) {
+  errEl.textContent = 'No ?file= parameter provided';
+  throw new Error('no file param');
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x222222);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.prepend(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.1;
+controls.minDistance = 0.1;
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 2);
+sun.position.set(5, 10, 7);
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x404040));
+
+const loader = new GLTFLoader();
+loader.load(
+  file,
+  (gltf) => {
+    scene.add(gltf.scene);
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3()).length();
+    const dist = size * 1.5;
+    camera.position.set(center.x + dist * 0.5, center.y + dist * 0.3, center.z + dist);
+    controls.target.copy(center);
+    controls.update();
+  },
+  undefined,
+  (err) => {
+    errEl.textContent = `Failed to load: ${err}`;
+  }
+);
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
