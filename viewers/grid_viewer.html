@@ -83,22 +83,17 @@
 
 <script type="module">
 const params = new URLSearchParams(location.search);
-const filesParam = params.get('files');
 const pageSize = parseInt(params.get('page_size'), 10) || 6;
 const thumbsBase = params.get('thumbs') || '/.catalog/gltf/thumbs';
 const videosBase = params.get('videos') || '/.catalog/gltf/video';
 const errEl = document.getElementById('error');
 
-if (!filesParam) {
-  errEl.textContent = 'No ?files= parameter provided (JSON array of paths)';
-  throw new Error('no files param');
-}
-
+// List is fetched, not passed via URL, so there's no cap on model count.
 let files;
 try {
-  files = JSON.parse(filesParam);
+  files = await fetch('/_files.json').then(r => r.json());
 } catch (e) {
-  errEl.textContent = 'Invalid ?files= parameter';
+  errEl.textContent = 'Could not load file list from /_files.json';
   throw e;
 }
 

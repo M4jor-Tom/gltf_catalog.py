@@ -15,7 +15,7 @@ Outputs:
   $CATALOG_DIR/thumbs/<Name.gltf>.png
   $CATALOG_DIR/video/<Name.gltf>.webm
 """
-import os, sys, glob, json, shutil, socketserver, http.server, urllib.parse, subprocess, webbrowser
+import os, sys, glob, json, shutil, socketserver, http.server, subprocess, webbrowser
 from pathlib import Path
 
 GLTF_DIR = os.environ.get("GLTF_DIR", "gltf")
@@ -98,8 +98,21 @@ def cmd_serve():
     # Symlink viewers/ into a temp-served path — but simpler: serve from $SRC
     # and route /_viewers/ to the packaged viewers dir.
     viewers = VIEWERS_DIR
+    files_json = json.dumps(paths).encode()
 
     class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            # The full model list is fetched here, not shoved into the URL —
+            # keeps the launch URL tiny so the catalog size is unbounded.
+            if self.path.split("?", 1)[0] == "/_files.json":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(files_json)))
+                self.end_headers()
+                self.wfile.write(files_json)
+                return
+            return super().do_GET()
+
         def translate_path(self, path):
             # Route /_viewers/foo -> packaged viewers dir
             if path.startswith("/_viewers/"):
@@ -111,10 +124,10 @@ def cmd_serve():
     with socketserver.TCPServer(("127.0.0.1", 0), Handler) as httpd:
         port = httpd.server_address[1]
         url = (f"http://127.0.0.1:{port}/_viewers/grid_viewer.html"
-               f"?files={urllib.parse.quote(json.dumps(paths))}"
-               f"&page_size={page_size}")
+               f"?page_size={page_size}")
         print(f"Serving {src}")
         print(f"Opening {len(paths)} models ({page_size} per page)")
+        print(f"URL: {url}")
         _open_private(url)
         httpd.serve_forever()
 
