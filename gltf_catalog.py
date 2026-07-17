@@ -27,6 +27,17 @@ def _models():
     return sorted(glob.glob(f"{GLTF_DIR}/*/*.gltf"))
 
 
+def _resolve_route(path, routes):
+    # Map an explicit URL prefix to an absolute on-disk root, so GLTF_DIR and
+    # CATALOG_DIR can live anywhere — not just under the server's CWD, which
+    # SimpleHTTPRequestHandler otherwise forces (it strips leading `..`).
+    clean = path.split("?", 1)[0].split("#", 1)[0]
+    for prefix, root in routes.items():
+        if clean.startswith(prefix):
+            return str(Path(root) / clean[len(prefix):])
+    return None
+
+
 def _needs_xvfb():
     if os.environ.get("NO_GPU") == "1":
         return True
@@ -91,13 +102,15 @@ def cmd_serve():
     models = _models()
     if not models:
         sys.exit(f"No .gltf files found in {GLTF_DIR}/*/")
-    # URL paths served relative to $SRC; folder basename kept intact.
-    paths = [f"/{GLTF_DIR}/{Path(m).parent.name}/{Path(m).name}" for m in models]
+    # Every asset is served through an explicit route mapped to an absolute
+    # dir, so nothing depends on where `serve` was launched from.
+    routes = {
+        "/_viewers/": VIEWERS_DIR,
+        "/_models/": Path(GLTF_DIR).resolve(),
+        "/_catalog/": Path(CATALOG_DIR).resolve(),
+    }
+    paths = [f"/_models/{Path(m).parent.name}/{Path(m).name}" for m in models]
     page_size = os.environ.get("PAGE_SIZE", "6")
-    src = os.getcwd()
-    # Symlink viewers/ into a temp-served path — but simpler: serve from $SRC
-    # and route /_viewers/ to the packaged viewers dir.
-    viewers = VIEWERS_DIR
     files_json = json.dumps(paths).encode()
 
     class Handler(http.server.SimpleHTTPRequestHandler):
@@ -114,18 +127,14 @@ def cmd_serve():
             return super().do_GET()
 
         def translate_path(self, path):
-            # Route /_viewers/foo -> packaged viewers dir
-            if path.startswith("/_viewers/"):
-                rel = path[len("/_viewers/"):].split("?", 1)[0].split("#", 1)[0]
-                return str(viewers / rel)
-            return super().translate_path(path)
+            return _resolve_route(path, routes) or super().translate_path(path)
 
-    os.chdir(src)
     with socketserver.TCPServer(("127.0.0.1", 0), Handler) as httpd:
         port = httpd.server_address[1]
         url = (f"http://127.0.0.1:{port}/_viewers/grid_viewer.html"
-               f"?page_size={page_size}")
-        print(f"Serving {src}")
+               f"?page_size={page_size}"
+               f"&thumbs=/_catalog/thumbs&videos=/_catalog/video")
+        print(f"Serving models from {routes['/_models/']}")
         print(f"Opening {len(paths)} models ({page_size} per page)")
         print(f"URL: {url}")
         _open_private(url)
